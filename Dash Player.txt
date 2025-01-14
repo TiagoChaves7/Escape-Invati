@@ -1,0 +1,586 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+
+public enum FireMode { Single, Double, Triple, Bomba }
+
+public class Player : MonoBehaviour
+{
+    public float speed = 10f; // Speed of movement
+    public GameObject[] bulletPrefab;
+    public Transform[] bulletSpawnPoint;
+    public float forcaDoProjetil = 200;
+
+    public int health = 4;
+    public Vector3 movement;
+    public float tempoEntreDisparos = 0.3f;
+    float contadorDeTempoDosDisparos = 0;
+
+    public FireMode fireMode = FireMode.Single;
+    public bool iman;
+    public bool isInvincible; // Indica se o jogador está invencível
+    public int bomba;
+    bool possuiIman = false;
+
+    private Rigidbody rb;
+    bool facingLeft = true;
+
+    public GameObject[] hearts;
+    public static Player instance;
+    public int value;
+
+    private Camera mainCamera;
+    private Vector3 screenBounds;
+    private float screenLeftBound;
+
+    //som disparo
+    public AudioSource audioSource; // Referência ao componente AudioSource
+    public AudioClip shootSound; // O som a ser reproduzido ao disparar
+    //som dead
+    public AudioSource audioSource1; // Referência ao componente AudioSource
+    public AudioClip shootSound1; // O som a ser reproduzido ao morrer
+                                  //som dash
+    public AudioSource audioSource2; // Referência ao componente AudioSource
+    public AudioClip shootSound2; // O som a ser reproduzido ao morrer
+
+    public int damageAmount = 10;
+    //dash
+    public float moveSpeed;
+   /* public float dashSpeed = 80f;
+    public float dashLength = 0.5f;
+    public float dashCooldown = 1f;
+    private float dashCounter;
+    private float dashCoolCounter; */
+  //  private bool canDash = true;
+    private bool isDashing;
+    private float dashingPower = 500f;
+    private float dashingTime = 0.8f;
+    private float dashingCooldown = 1f;
+    [SerializeField] private TrailRenderer tr;
+
+    private Dictionary<KeyCode, int> arrowKeyPressCount = new Dictionary<KeyCode, int>();
+    private Dictionary<KeyCode, float> arrowKeyPressTime = new Dictionary<KeyCode, float>();
+    public float doublePressTimeThreshold = 0.5f; // Tempo máximo permitido entre as duas pressões de tecla
+                                                  //private bool isDashing = false; // Adicionada a declaração da variável isDashing
+
+    public float magnetDuration = 2f; // Duração do ímã em segundos
+    private bool isMagnetActive = false; // Indica se o ímã está ativo
+    private float magnetTimer = 0f; // Temporizador do ímã
+    private int magnetUsesRemaining = 3; // Número de vezes que o jogador pode ativar o ímã
+
+    private Magnet magnetScript;
+    private CoinMove coinMoveScript;
+    private Coin CoinScript;
+
+    void Start()
+    {
+        moveSpeed = speed;
+        rb = GetComponent<Rigidbody>();
+        this.fireMode = GameController2.FIRE_MODE;
+        this.iman = GameController2.IMAN;
+        this.isInvincible = GameController2.ESCUDO;
+        this.bomba = GameController2.BOMBA;
+
+       
+
+        mainCamera = Camera.main;
+        CalculateScreenBounds();
+
+        for (int i = 0; i < health; i++)
+        {
+            if (health > i)
+            {
+                hearts[i].SetActive(true);
+            }
+            else
+            {
+                hearts[i].SetActive(false);
+            }
+        }
+
+        possuiIman = GameController2.POSSUI_IMAN;
+        magnetScript = GameObject.FindGameObjectWithTag("Magnet").GetComponent<Magnet>();
+        coinMoveScript = GameObject.FindGameObjectWithTag("Coin").GetComponent<CoinMove>();
+        CoinScript = GameObject.FindGameObjectWithTag("Coin").GetComponent<Coin>();
+
+        Debug.Log("magnetScript: " + magnetScript);
+        Debug.Log("coinMoveScript: " + coinMoveScript);
+    }
+
+    private void CheckBossCollision()
+    {
+        RaycastHit hit;
+        if (Physics.Raycast(transform.position, transform.forward, out hit))
+        {
+            Boss boss = hit.collider.GetComponent<Boss>();
+            if (boss != null)
+            {
+                boss.TakeDamage(damageAmount);
+            }
+        }
+    }
+
+    void Update()
+    {
+        magnetTimer -= Time.deltaTime;
+        if (magnetTimer <= 0)
+        {
+            isMagnetActive = false;
+        }
+
+        // Restringir a ativação do ímã apenas se o ímã estiver ativo e o jogador ainda tiver usos restantes
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            if (isMagnetActive && magnetUsesRemaining > 0)
+            { 
+                ImanAtivo();
+                magnetUsesRemaining--; // Diminuir a quantidade de usos restantes do ímã
+            }
+        }
+
+        this.fireMode = GameController2.FIRE_MODE;
+
+        if (isDashing)
+        {
+            return;
+        }
+
+
+        if (Input.GetAxis("Horizontal") < 0)
+        {
+            facingLeft = true;
+        }
+        else
+        {
+            facingLeft = false;
+        }
+
+        movement = new Vector3(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"), 0).normalized;
+
+        if (contadorDeTempoDosDisparos <= 100)
+        {
+            contadorDeTempoDosDisparos += Time.deltaTime;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(0))
+        {
+            if (contadorDeTempoDosDisparos >= tempoEntreDisparos)
+            {
+               audioSource.PlayOneShot(shootSound);
+                switch (fireMode)
+                {
+                    case FireMode.Single:
+                        if (facingLeft)
+                        {
+                            var proj = Instantiate(bulletPrefab[0], bulletSpawnPoint[0].position, Quaternion.identity);
+                            proj.GetComponent<Rigidbody>().AddForce(new Vector3(-forcaDoProjetil, forcaDoProjetil, 0));
+                        }
+                        else
+                        {
+                            var proj = Instantiate(bulletPrefab[0], bulletSpawnPoint[1].position, Quaternion.identity);
+                            proj.GetComponent<Rigidbody>().AddForce(new Vector3(forcaDoProjetil, forcaDoProjetil, 0));
+                        }
+                        break;
+                    case FireMode.Double:
+                        var proj1 = Instantiate(bulletPrefab[1], bulletSpawnPoint[0].position, Quaternion.identity);
+                        proj1.GetComponent<Rigidbody>().AddForce(new Vector3(-forcaDoProjetil, forcaDoProjetil, 0));
+
+                        var proj2 = Instantiate(bulletPrefab[1], bulletSpawnPoint[1].position, Quaternion.identity);
+                        proj2.GetComponent<Rigidbody>().AddForce(new Vector3(forcaDoProjetil, forcaDoProjetil, 0));
+                        break;
+                    case FireMode.Triple:
+                        var proj3 = Instantiate(bulletPrefab[2], bulletSpawnPoint[0].position, Quaternion.identity);
+                        proj3.GetComponent<Rigidbody>().AddForce(new Vector3(-forcaDoProjetil, forcaDoProjetil, 0));
+
+                        var proj4 = Instantiate(bulletPrefab[2], bulletSpawnPoint[1].position, Quaternion.identity);
+                        proj4.GetComponent<Rigidbody>().AddForce(new Vector3(forcaDoProjetil, forcaDoProjetil, 0));
+
+                        var proj5 = Instantiate(bulletPrefab[2], bulletSpawnPoint[2].position, Quaternion.identity);
+                        proj5.GetComponent<Rigidbody>().AddForce(new Vector3(-forcaDoProjetil, forcaDoProjetil, 0));
+
+                        var proj6 = Instantiate(bulletPrefab[2], bulletSpawnPoint[2].position, Quaternion.identity);
+                        proj6.GetComponent<Rigidbody>().AddForce(new Vector3(forcaDoProjetil, forcaDoProjetil, 0));
+                        break;
+                    case FireMode.Bomba:
+                        var proj7 = Instantiate(bulletPrefab[3], bulletSpawnPoint[2].position, Quaternion.identity);
+                        proj7.GetComponent<Rigidbody>().AddForce(new Vector3(forcaDoProjetil, forcaDoProjetil, 0));
+                        break;
+                }
+
+                contadorDeTempoDosDisparos = 0;
+            }
+            CheckBossCollision();
+        }
+        foreach (KeyCode arrowKey in new KeyCode[] { KeyCode.UpArrow, KeyCode.DownArrow, KeyCode.LeftArrow, KeyCode.RightArrow })
+        {
+            if (Input.GetKeyDown(arrowKey))
+            {
+                if (arrowKeyPressCount.ContainsKey(arrowKey))
+                {
+                    float lastKeyPressTime = arrowKeyPressTime[arrowKey];
+                    float currentTime = Time.time;
+
+                    if (currentTime - lastKeyPressTime <= doublePressTimeThreshold && movement.magnitude > 0.1f)
+                    {
+                        Debug.Log("Seta " + arrowKey.ToString() + " pressionada duas vezes!");
+                        audioSource2.PlayOneShot(shootSound2);
+
+                        // Dash
+                        StartCoroutine(Dash(arrowKey));
+                    }
+
+                    arrowKeyPressCount[arrowKey]++;
+                    arrowKeyPressTime[arrowKey] = Time.time;
+                }
+                else
+                {
+                    if (!arrowKeyPressCount.ContainsKey(arrowKey))
+                    {
+                        arrowKeyPressCount.Add(arrowKey, 1);
+                        arrowKeyPressTime.Add(arrowKey, Time.time);
+                    }
+                }
+            }
+        }
+    }
+
+  using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+// Enum for different fire modes
+public enum FireMode { Single, Double, Triple, Bomba }
+
+public class Player : MonoBehaviour
+{
+    // Movement and shooting properties
+    public float speed = 10f; // Speed of movement
+    public GameObject[] bulletPrefab;
+    public Transform[] bulletSpawnPoint;
+    public float forcaDoProjetil = 200; // Projectile force
+
+    // Player stats
+    public int health = 4;
+    public Vector3 movement;
+    public float tempoEntreDisparos = 0.3f; // Time between shots
+    float contadorDeTempoDosDisparos = 0; // Shot time counter
+
+    // Power-up states
+    public FireMode fireMode = FireMode.Single;
+    public bool iman; // Magnet
+    public bool isInvincible; // Indicates if the player is invincible
+    public int bomba; // Bomb
+    bool possuiIman = false; // Has magnet
+
+    // Components and game objects
+    private Rigidbody rb;
+    bool facingLeft = true;
+    public GameObject[] hearts;
+    public static Player instance;
+    public int value;
+
+    // Camera and screen boundaries
+    private Camera mainCamera;
+    private Vector3 screenBounds;
+    private float screenLeftBound;
+
+    // Audio sources and clips
+    public AudioSource audioSource; // Reference to AudioSource component for shooting
+    public AudioClip shootSound; // Sound to be played when shooting
+    public AudioSource audioSource1; // Reference to AudioSource component for death
+    public AudioClip shootSound1; // Sound to be played when dying
+    public AudioSource audioSource2; // Reference to AudioSource component for dash
+    public AudioClip shootSound2; // Sound to be played when dashing
+
+    // Combat
+    public int damageAmount = 10;
+
+    // Dash properties
+    public float moveSpeed;
+    private bool isDashing;
+    private float dashingPower = 500f;
+    private float dashingTime = 0.8f;
+    private float dashingCooldown = 1f;
+    [SerializeField] private TrailRenderer tr;
+
+    // Double key press detection
+    private Dictionary<KeyCode, int> arrowKeyPressCount = new Dictionary<KeyCode, int>();
+    private Dictionary<KeyCode, float> arrowKeyPressTime = new Dictionary<KeyCode, float>();
+    public float doublePressTimeThreshold = 0.5f; // Maximum time allowed between two key presses
+
+    // Magnet properties
+    public float magnetDuration = 2f; // Duration of the magnet in seconds
+    private bool isMagnetActive = false; // Indicates if the magnet is active
+    private float magnetTimer = 0f; // Magnet timer
+    private int magnetUsesRemaining = 3; // Number of times the player can activate the magnet
+
+    // References to other scripts
+    private Magnet magnetScript;
+    private CoinMove coinMoveScript;
+    private Coin CoinScript;
+
+    void Start()
+    {
+        // Initialize components and properties
+        moveSpeed = speed;
+        rb = GetComponent<Rigidbody>();
+        this.fireMode = GameController2.FIRE_MODE;
+        this.iman = GameController2.IMAN;
+        this.isInvincible = GameController2.ESCUDO;
+        this.bomba = GameController2.BOMBA;
+
+        mainCamera = Camera.main;
+        CalculateScreenBounds();
+
+        // Set up health display
+        for (int i = 0; i < health; i++)
+        {
+            if (health > i)
+            {
+                hearts[i].SetActive(true);
+            }
+            else
+            {
+                hearts[i].SetActive(false);
+            }
+        }
+
+        // Initialize magnet-related properties
+        possuiIman = GameController2.POSSUI_IMAN;
+        magnetScript = GameObject.FindGameObjectWithTag("Magnet").GetComponent<Magnet>();
+        coinMoveScript = GameObject.FindGameObjectWithTag("Coin").GetComponent<CoinMove>();
+        CoinScript = GameObject.FindGameObjectWithTag("Coin").GetComponent<Coin>();
+
+        Debug.Log("magnetScript: " + magnetScript);
+        Debug.Log("coinMoveScript: " + coinMoveScript);
+    }
+
+    // Check for collision with boss
+    private void CheckBossCollision()
+    {
+        RaycastHit hit;
+        if (Physics.Raycast(transform.position, transform.forward, out hit))
+        {
+            Boss boss = hit.collider.GetComponent<Boss>();
+            if (boss != null)
+            {
+                boss.TakeDamage(damageAmount);
+            }
+        }
+    }
+
+    void Update()
+    {
+        // Update magnet timer
+        magnetTimer -= Time.deltaTime;
+        if (magnetTimer <= 0)
+        {
+            isMagnetActive = false;
+        }
+
+        // Activate magnet if available
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            if (isMagnetActive && magnetUsesRemaining > 0)
+            {
+                ImanAtivo();
+                magnetUsesRemaining--; // Decrease remaining magnet uses
+            }
+        }
+
+        this.fireMode = GameController2.FIRE_MODE;
+
+        if (isDashing)
+        {
+            return;
+        }
+
+        // Determine facing direction
+        if (Input.GetAxis("Horizontal") < 0)
+        {
+            facingLeft = true;
+        }
+        else
+        {
+            facingLeft = false;
+        }
+
+        // Get movement input
+        movement = new Vector3(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"), 0).normalized;
+
+        // Update shot timer
+        if (contadorDeTempoDosDisparos <= 100)
+        {
+            contadorDeTempoDosDisparos += Time.deltaTime;
+        }
+
+        // Handle shooting
+        if (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(0))
+        {
+            if (contadorDeTempoDosDisparos >= tempoEntreDisparos)
+            {
+                audioSource.PlayOneShot(shootSound);
+                switch (fireMode)
+                {
+                    case FireMode.Single:
+                        // Implement single shot logic
+                        break;
+                    case FireMode.Double:
+                        // Implement double shot logic
+                        break;
+                    case FireMode.Triple:
+                        // Implement triple shot logic
+                        break;
+                    case FireMode.Bomba:
+                        // Implement bomb shot logic
+                        break;
+                }
+
+                contadorDeTempoDosDisparos = 0;
+            }
+            CheckBossCollision();
+        }
+
+        // Handle dash input
+        foreach (KeyCode arrowKey in new KeyCode[] { KeyCode.UpArrow, KeyCode.DownArrow, KeyCode.LeftArrow, KeyCode.RightArrow })
+        {
+            if (Input.GetKeyDown(arrowKey))
+            {
+                // Implement dash logic
+            }
+        }
+    }
+
+    void FixedUpdate()
+    {
+        // Handle movement and dashing
+        if (isDashing)
+        {
+            rb.velocity = movement * speed * Time.fixedDeltaTime;
+            return;
+        }
+        if (movement.magnitude > 0.1f)
+        {
+            moveCharacter(movement, speed);
+        }
+        else
+        {
+            rb.velocity = Vector3.zero;
+        }
+    }
+
+    // Move the character
+    void moveCharacter(Vector3 direction, float speed)
+    {
+        rb.velocity = direction * speed * Time.fixedDeltaTime;
+    }
+
+    // Handle coin collection
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.gameObject.CompareTag("Coin"))
+        {
+            CoinCounter.instance.IncreaseCoins(value);
+            Destroy(other.gameObject);
+        }
+    }
+
+    // Handle taking damage
+    public void TakeDamage()
+    {
+        health -= 1;
+        hearts[health].SetActive(false);
+        if (health <= 0)
+        {
+            Die();
+        }
+    }
+
+    // Implement dash functionality
+    private IEnumerator Dash(KeyCode arrowKey)
+    {
+        // Dash logic implementation
+        yield return null;
+    }
+
+    // Calculate screen boundaries
+    private void CalculateScreenBounds()
+    {
+        screenBounds = mainCamera.ScreenToWorldPoint(new Vector3(Screen.width, Screen.height, mainCamera.transform.position.z));
+        screenLeftBound = mainCamera.ScreenToWorldPoint(Vector3.zero).x;
+    }
+
+    // Keep player within screen bounds
+    private void LateUpdate()
+    {
+        Vector3 clampedPosition = transform.position;
+        clampedPosition.x = Mathf.Clamp(clampedPosition.x, screenLeftBound, screenBounds.x);
+        clampedPosition.y = Mathf.Clamp(clampedPosition.y, -screenBounds.y, screenBounds.y);
+        transform.position = clampedPosition;
+    }
+
+    // Handle player death
+    public void Die()
+    {
+        audioSource1.clip = shootSound1; // Set death audio clip
+        audioSource1.Play(); // Play death audio
+        GameController2.FIRE_MODE = FireMode.Single;
+        GameController2.IS_WINNING = false;
+        StartCoroutine(LoadDefeatScene());
+    }
+
+    // Load defeat scene after death
+    private IEnumerator LoadDefeatScene()
+    {
+        yield return new WaitForSeconds(audioSource1.clip.length);
+        SceneManager.LoadScene("Defeat");
+    }
+
+    // Activate magnet power-up
+    public void ImanAtivo()
+    {
+        if (magnetUsesRemaining > 0)
+        {
+            magnetScript.AtivarCoinDetector(); // Activate coinDetectorObj in Magnet
+            coinMoveScript.enabled = true;
+            isMagnetActive = true;
+            magnetTimer = magnetDuration;
+            CoinScript.isMagnetPurchased = true;
+        }
+    }
+
+    // Activate shield power-up
+    public void EscudoAtivo()
+    {
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        if (player != null)
+        {
+            Invincibility invincibilityScript = player.GetComponent<Invincibility>();
+            if (invincibilityScript != null)
+            {
+                invincibilityScript.ActivateInvincibility(player, 2f);
+            }
+            else
+            {
+                Debug.Log("Invincibility component not found on player object.");
+            }
+        }
+        else
+        {
+            Debug.Log("Player object not found");
+        }
+    }
+
+    // Activate bomb power-up (to be implemented)
+    public void BombaAtiva()
+    {
+        // Implement bomb activation logic
+    }
+}
+
+}
